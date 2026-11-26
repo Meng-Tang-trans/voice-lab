@@ -1,27 +1,27 @@
 /*
- * 会话编排：一句话录音 → 报告卡。
- * 与旧版 9 段协议的区别：不再要求固定元音，直接分析整句话里的有声帧。
+ * 会话编排：用户自定时长的一句话 → 报告卡。
+ * 录音长度由用户按「停止」决定，上限 60 秒。
  */
 import * as dsp from './dsp.js';
 
-export const LEAD_SEC = 1.0;
-export const SPEAK_SEC = 6.0;
-export const TOTAL_SEC = LEAD_SEC + SPEAK_SEC;
+export const MAX_SEC = 60;
+export const MIN_SEC = 2;
 
 /**
- * @param {Float32Array} x  16 kHz PCM，开头 1 秒是环境声
+ * @param {Float32Array} x  16 kHz PCM，长度由用户决定
  * @returns {{report: object, meta: object}}
  */
 export function analyzeSentence(x) {
-  const lead = Math.floor(LEAD_SEC * dsp.SR);
-  const y = x.length > lead ? x.subarray(lead) : x;
-
-  const f0 = dsp.medianFilter(dsp.yinTrack(y), 5);
+  const f0 = dsp.medianFilter(dsp.yinTrack(x), 5);
   const stats = dsp.f0Stats(f0);
-  const formants = dsp.speechFormants(y, f0);
-  const vtl = dsp.speechVTL(y, f0);
-  const cpp = dsp.cppMedian(dsp.cppTrack(y));
-  const rhythm = dsp.speechRhythm(y);
+  const formants = dsp.speechFormants(x, f0);
+  const vtl = dsp.speechVTL(x, f0);
+  const cpp = dsp.cppMedian(dsp.cppTrack(x));
+  const rhythm = dsp.speechRhythm(x);
+
+  const durationS = x.length / dsp.SR;
+  const voicedS = rhythm ? rhythm.activeS : 0;
+  const lowConf = voicedS < 3;
 
   const report = dsp.buildSpeechReport({
     f0Median: stats.median,
@@ -30,6 +30,9 @@ export function analyzeSentence(x) {
     cppMedian: cpp,
     rhythm,
     vtl,
+    lowConf,
+    durationS,
+    voicedS,
   });
 
   return {
@@ -41,6 +44,9 @@ export function analyzeSentence(x) {
       vtl,
       cpp,
       rhythm,
+      durationS,
+      voicedS,
+      lowConf,
     },
   };
 }
