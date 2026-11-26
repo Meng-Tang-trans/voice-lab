@@ -5,7 +5,7 @@
  */
 
 import * as dsp from './dsp.js';
-import { STEPS, SILENCE_SEC, TOTAL_SEC, analyzeRecordings } from './session.js';
+import { LEAD_SEC, TOTAL_SEC, analyzeSentence } from './session.js';
 
 const $ = (id) => document.getElementById(id);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -86,50 +86,45 @@ async function recordOnce(onProgress) {
 
 async function runSession() {
   cancelled = false;
-  const recs = {};
-  const failed = [];
+  let accepted = null;
+  let lastGate = null;
 
-  for (let i = 0; i < STEPS.length; i++) {
-    const step = STEPS[i];
-    let attempt = 0;
-    let accepted = null;
+  for (let attempt = 0; attempt < 2 && !accepted; attempt++) {
+    $('step-index').textContent = '';
+    $('step-title').textContent = '说一句话';
+    $('step-prompt').textContent = '随便说什么都可以，自然地说 5 秒左右';
+    $('progress-fill').style.width = '0%';
+    $('status').textContent = '准备中…';
+    show('screen-record');
 
-    while (attempt < 2 && !accepted) {
-      attempt++;
-      $('step-index').textContent = `${i + 1} / ${STEPS.length}`;
-      $('step-title').textContent = step.title;
-      $('step-prompt').textContent = step.prompt;
-      $('progress-fill').style.width = '0%';
-      $('status').textContent = '准备中…';
-      show('screen-record');
+    const x = await recordOnce((elapsed) => {
+      $('progress-fill').style.width = `${(elapsed / TOTAL_SEC) * 100}%`;
+      $('status').textContent = elapsed < LEAD_SEC
+        ? `保持安静… ${(LEAD_SEC - elapsed).toFixed(1)} 秒`
+        : '现在说：任何一句话';
+    });
 
-      const x = await recordOnce((elapsed) => {
-        $('progress-fill').style.width = `${(elapsed / TOTAL_SEC) * 100}%`;
-        $('status').textContent = elapsed < SILENCE_SEC
-          ? `保持安静… ${(SILENCE_SEC - elapsed).toFixed(1)} 秒`
-          : `现在发声：${step.prompt}`;
-      });
+    if (cancelled) return;
 
-      if (cancelled) return;
-
-      const gate = dsp.qualityGate(x);
-      if (gate.ok) accepted = { x, gate };
-      else if (attempt === 1) {
-        $('status').textContent = `这次没通过（${gate.reasons.join('、')}），重录一次…`;
-        await sleep(1200);
-      } else {
-        failed.push({ step: step.title, reasons: gate.reasons });
-        accepted = { x, gate };
-      }
+    const gate = dsp.qualityGate(x, dsp.SR, LEAD_SEC);
+    lastGate = gate;
+    if (gate.ok) accepted = x;
+    else if (attempt === 0) {
+      $('status').textContent = `这次没通过（${gate.reasons.join('、')}），再来一次…`;
+      await sleep(1200);
+    } else {
+      accepted = x;
     }
-    if (accepted) recs[step.key] = accepted.x;
   }
 
   $('status').textContent = '分析中…';
   show('screen-analyzing');
   await sleep(60);
 
-  const { report, meta } = analyzeRecordings(recs);
+  const { report, meta } = analyzeSentence(accepted);
+  const failed = lastGate && !lastGate.ok
+    ? [{ step: '本次录音', reasons: lastGate.reasons }]
+    : [];
   renderReport(report, failed);
   saveHistory(meta);
   show('screen-report');
@@ -223,8 +218,8 @@ function saveHistory(m) {
   const list = loadHistory();
   list.unshift({
     ts: Date.now(),
-    f0: m.refHz ? Math.round(m.refHz) : null,
-    f2: m.formants.i && m.formants.i.F2 ? Math.round(m.formants.i.F2) : null,
+    f0: m.f0 ? Math.round(m.f0) : null,
+    f2: m.formants && m.formants.F2 ? Math.round(m.formants.F2) : null,
     cpp: m.cpp != null ? Math.round(m.cpp * 10) / 10 : null,
   });
   localStorage.setItem(KEY, JSON.stringify(list.slice(0, 30)));
@@ -246,8 +241,8 @@ function renderHistory() {
     d.className = 'hist';
     const t = new Date(it.ts);
     const parts = [`${t.getFullYear()}/${t.getMonth() + 1}/${t.getDate()} ${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`];
-    if (it.f0) parts.push(`阴平 F0 ${it.f0} Hz`);
-    if (it.f2) parts.push(`/i/ F2 ${it.f2} Hz`);
+    if (it.f0) parts.push(`说话 F0 ${it.f0} Hz`);
+    if (it.f2) parts.push(`F2 ${it.f2} Hz`);
     if (it.cpp != null) parts.push(`CPP ${it.cpp} dB`);
     d.innerHTML = `<div class="t">${parts[0]}</div><div>${parts.slice(1).join('　·　')}</div>`;
     root.appendChild(d);
