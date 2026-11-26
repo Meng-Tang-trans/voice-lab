@@ -19,6 +19,7 @@ export function analyzeSentence(x) {
   const f0 = dsp.medianFilter(dsp.yinTrack(y), 5);
   const stats = dsp.f0Stats(f0);
   const formants = dsp.speechFormants(y, f0);
+  const vtl = dsp.speechVTL(y, f0);
   const cpp = dsp.cppMedian(dsp.cppTrack(y));
   const rhythm = dsp.speechRhythm(y);
 
@@ -28,6 +29,7 @@ export function analyzeSentence(x) {
     formants,
     cppMedian: cpp,
     rhythm,
+    vtl,
   });
 
   return {
@@ -36,6 +38,7 @@ export function analyzeSentence(x) {
       f0: stats.median,
       rangeSt: stats.rangeSt,
       formants,
+      vtl,
       cpp,
       rhythm,
     },
