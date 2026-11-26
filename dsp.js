@@ -312,7 +312,7 @@ export function cppMedian(cpp) {
 
 /* ---------------------------------------------------------------- 质量闸门 */
 
-export function qualityGate(x, fs = SR, noiseSec = NOISE_SEC) {
+export function qualityGate(x, fs = SR) {
   const dur = x.length / fs;
   let peak = 0, clipped = 0;
   for (let i = 0; i < x.length; i++) {
@@ -321,32 +321,21 @@ export function qualityGate(x, fs = SR, noiseSec = NOISE_SEC) {
     if (a > 0.99) clipped++;
   }
   const reasons = [];
-  if (dur < noiseSec + 1.0) reasons.push('时长不足');
+  if (dur < 2.0) reasons.push('时长不足');
   if (clipped > x.length * 1e-3) reasons.push('削波');
   if (peak < 0.02) reasons.push('音量过低');
 
-  const nNoise = Math.floor(noiseSec * fs);
   let snr = null;
-  if (x.length > nNoise + fs / 2) {
-    let acc = 0;
-    for (let i = 0; i < nNoise; i++) acc += x[i] * x[i];
-    const noiseRms = Math.sqrt(acc / nNoise);
-    const frame = Math.floor(0.02 * fs);
-    const rmsList = [];
-    for (let s = nNoise; s < x.length - frame; s += frame) {
-      let a2 = 0;
-      for (let i = 0; i < frame; i++) a2 += x[s + i] * x[s + i];
-      rmsList.push(Math.sqrt(a2 / frame));
-    }
-    if (rmsList.length) {
-      rmsList.sort((a, b) => a - b);
-      const speech = rmsList[Math.min(rmsList.length - 1, Math.floor(rmsList.length * 0.9))];
-      if (noiseRms > 1e-9) {
-        snr = 20 * Math.log10(speech / noiseRms);
-        if (snr < 15) reasons.push(`信噪比偏低（${snr.toFixed(1)} dB）`);
-      } else if (speech > 1e-6) {
-        snr = 99;
-      }
+  const rms = frameRms(x, fs);
+  if (rms.length > 20) {
+    const sorted = Array.from(rms).sort((a, b) => a - b);
+    const noise = sorted[Math.floor(sorted.length * 0.1)] || 1e-9;
+    const speech = sorted[Math.floor(sorted.length * 0.9)] || 0;
+    if (noise > 1e-9 && speech > noise * 1.5) {
+      snr = 20 * Math.log10(speech / noise);
+      if (snr < 12) reasons.push(`信噪比偏低（${snr.toFixed(1)} dB）`);
+    } else if (speech <= noise * 1.5) {
+      reasons.push('没有明显发声');
     }
   }
   return { ok: reasons.length === 0, reasons, durationS: dur, peak, snrDb: snr };
@@ -614,7 +603,7 @@ export function speechRhythm(x, fs = SR) {
   for (let i = 0; i < rms.length; i++) {
     if (rms[i] > th) { if (first < 0) first = i; last = i; activeCount++; }
   }
-  if (first < 0) return { durationS: 0, activeS: 0, activeRatio: 0, pauses: 0, noiseRms: noise, peakRms: peak };
+  if (first < 0) return { durationS: 0, activeS: 0, activeRatio: 0, pauses: 0, pausesPerMin: 0, syllables: 0, rate: 0, noiseRms: noise, peakRms: peak };
 
   let pauses = 0, silentRun = 0;
   for (let i = first; i <= last; i++) {
@@ -651,6 +640,7 @@ export function speechRhythm(x, fs = SR) {
     activeS,
     activeRatio: activeCount / frames,
     pauses,
+    pausesPerMin: frames > 0 ? pauses / (frames * 0.01 / 60) : 0,
     syllables,
     rate,
     noiseRms: noise,
@@ -658,7 +648,17 @@ export function speechRhythm(x, fs = SR) {
   };
 }
 
-export function buildSpeechReport({ f0Median, f0RangeSt, formants, cppMedian, rhythm, vtl }) {
+function makeViz(value, center, half, negWord, posWord) {
+  const p = (value - center) / half;
+  return {
+    p: Math.max(-2, Math.min(2, p)),
+    state: Math.abs(p) <= 1 ? 'in' : (Math.abs(p) <= 2 ? 'out' : 'far'),
+    negWord, posWord,
+    dev: Math.abs(p),
+  };
+}
+
+export function buildSpeechReport({ f0Median, f0RangeSt, formants, cppMedian, rhythm, vtl, lowConf, durationS, voicedS }) {
   const sections = [];
   const priority = [];
   const notes = [];
@@ -669,6 +669,7 @@ export function buildSpeechReport({ f0Median, f0RangeSt, formants, cppMedian, rh
     const inBand = f0Median >= fLo && f0Median <= fHi;
     const items = [{
       label: '说话 F0 中位数', value: `${f0Median.toFixed(0)} Hz`, kind: 'interval',
+      viz: makeViz(f0Median, 210, 45, '偏低', '偏高'),
       text: `女声说话参考 ${fLo}–${fHi} Hz（${inBand ? '区间内' : '区间外'}）；按持续元音参照为第 ${pct.toFixed(0)} 百分位`,
     }];
     if (f0RangeSt != null) {
@@ -689,6 +690,7 @@ export function buildSpeechReport({ f0Median, f0RangeSt, formants, cppMedian, rh
       const inBand = vtl.vtlCm >= vLo && vtl.vtlCm <= vHi;
       items.push({
         label: '声道长度（VTL 估算）', value: `${vtl.vtlCm.toFixed(1)} cm`, kind: 'interval',
+        viz: makeViz(vtl.vtlCm, 14.5, 1.5, '偏短', '偏长'),
         text: `女声参考 ${vLo}–${vHi} cm，男声 ${VTL_MALE_BAND[0]}–${VTL_MALE_BAND[1]} cm（${inBand ? '区间内' : '区间外'}）；由 ${vtl.n} 个共振峰间距估算，误差约 ±1.5 cm`,
       });
       notes.push(`声道长度 ${vtl.vtlCm.toFixed(1)} cm，${inBand ? '在' : '超出'}女声参考范围`);
@@ -715,6 +717,7 @@ export function buildSpeechReport({ f0Median, f0RangeSt, formants, cppMedian, rh
       title: '音质',
       items: [{
         label: 'CPP', value: `${cppMedian.toFixed(1)} dB`, kind: 'self_only',
+        viz: makeViz(cppMedian, CPP_REF_SAMPLE, 1.5, '偏低', '偏高'),
         text: `同工具参考女声 ${CPP_REF_SAMPLE} dB；与参考差值 ${diff >= 0 ? '+' : ''}${diff.toFixed(1)} dB（设备相关，只做相对比较）`,
       }],
     });
@@ -729,11 +732,12 @@ export function buildSpeechReport({ f0Median, f0RangeSt, formants, cppMedian, rh
       items: [
         {
           label: '语速（估算）', value: `${rate.toFixed(1)} 音节/秒`, kind: 'interval',
+          viz: makeViz(rate, 5.75, 1.75, '偏慢', '偏快'),
           text: `普通话日常语速参考 ${RATE_BAND[0]}–${RATE_BAND[1]} 音节/秒（${inBand ? '区间内' : '区间外'}）；本句 ${rhythm.syllables} 个音节 / ${rhythm.activeS.toFixed(1)} 秒`,
         },
         {
-          label: '句中停顿', value: `${rhythm.pauses} 次`, kind: 'self_only',
-          text: '≥0.25 秒的静音段；参考 0–3 次/句（弱基准）',
+          label: '句中停顿', value: `${rhythm.pauses} 次 · ${(rhythm.pausesPerMin || 0).toFixed(1)} 次/分钟`, kind: 'self_only',
+          text: '≥0.25 秒的静音段；按分钟归一，说得久也不会天然变多',
         },
         {
           label: '有效发声', value: `${rhythm.activeS.toFixed(1)} 秒`, kind: 'self_only',
@@ -757,12 +761,19 @@ export function buildSpeechReport({ f0Median, f0RangeSt, formants, cppMedian, rh
 
   priority.sort((p, q) => q[1] - p[1]);
   const top = priority.slice(0, 3);
+  const durationText = [
+    durationS != null ? `本次 ${durationS.toFixed(1)} 秒` : '',
+    voicedS != null ? `有效发声 ${voicedS.toFixed(1)} 秒` : '',
+  ].filter(Boolean).join('，');
   const conclusion = {
-    headline: sections.length && sections[0].title !== '没有测到有效声音'
-      ? (top.length ? `这次有 ${top.length} 项偏离参考范围` : '四项都在参考范围内')
-      : '没有可用结论',
-    text: notes.length ? notes.join('；') + '。' : '这句话里没有测到稳定的有声段。',
+    headline: lowConf
+      ? '有效发声不足 3 秒 · 结论仅供参考'
+      : (sections.length && sections[0].title !== '没有测到有效声音'
+        ? (top.length ? `这次有 ${top.length} 项偏离参考范围` : '四项都在参考范围内')
+        : '没有可用结论'),
+    text: (notes.length ? notes.join('；') + '。' : '这句话里没有测到稳定的有声段。') + (durationText ? durationText + '。' : ''),
     points: top.map((p) => p[0]),
+    lowConf: !!lowConf,
   };
 
   return {
