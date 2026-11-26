@@ -5,7 +5,7 @@
  */
 
 import * as dsp from './dsp.js';
-import { LEAD_SEC, TOTAL_SEC, analyzeSentence } from './session.js';
+import { MAX_SEC, analyzeSentence } from './session.js';
 
 const $ = (id) => document.getElementById(id);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -16,11 +16,19 @@ function show(id) {
   window.scrollTo({ top: 0 });
 }
 
+function fmtTime(sec) {
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  const d = Math.floor((sec * 10) % 10);
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${d}`;
+}
+
 /* ------------------------------------------------------------ 录音 */
 
 let audioCtx = null;
 let micStream = null;
 let cancelled = false;
+let activeStop = null;
 
 function getCtx() {
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -34,7 +42,6 @@ async function ensureMic() {
   }
   micStream = await navigator.mediaDevices.getUserMedia({
     audio: {
-      // 必须关掉这三个：AGC 会改音量、降噪会削掉气声、回声消除会改变频谱
       echoCancellation: false,
       noiseSuppression: false,
       autoGainControl: false,
@@ -50,82 +57,108 @@ function pickMime() {
   return cands.find((m) => MediaRecorder.isTypeSupported(m)) || '';
 }
 
-async function recordOnce(onProgress) {
-  const stream = await ensureMic();
-  const mime = pickMime();
-  const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
-  const chunks = [];
-  rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
-  const stopped = new Promise((res) => { rec.onstop = res; });
+/**
+ * 手动录音：用户按停止才结束；到 MAX_SEC 自动停。
+ */
+function recordManual(onTick) {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const stream = await ensureMic();
+      const mime = pickMime();
+      const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+      const chunks = [];
+      rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+      const stopped = new Promise((r) => { rec.onstop = r; });
 
-  const t0 = performance.now();
-  rec.start();
-  let raf = 0;
-  const tick = () => {
-    const el = (performance.now() - t0) / 1000;
-    onProgress(Math.min(el, TOTAL_SEC));
-    if (el < TOTAL_SEC) raf = requestAnimationFrame(tick);
-  };
-  raf = requestAnimationFrame(tick);
+      const ctx = getCtx();
+      const src = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 1024;
+      src.connect(analyser);
+      const buf = new Uint8Array(analyser.fftSize);
 
-  await sleep(TOTAL_SEC * 1000);
-  cancelAnimationFrame(raf);
-  onProgress(TOTAL_SEC);
-  rec.stop();
-  await stopped;
+      let done = false;
+      const t0 = performance.now();
+      let timer = 0;
 
-  const blob = new Blob(chunks, { type: rec.mimeType || 'audio/webm' });
-  const buf = await blob.arrayBuffer();
-  const ctx = getCtx();
-  const audio = await ctx.decodeAudioData(buf);
-  const raw = audio.getChannelData(0);
-  return dsp.resampleLinear(raw, audio.sampleRate, dsp.SR);
+      const finish = async () => {
+        if (done) return;
+        done = true;
+        clearInterval(timer);
+        try { rec.stop(); } catch (e) {}
+        await stopped;
+        try { src.disconnect(); } catch (e) {}
+        const blob = new Blob(chunks, { type: rec.mimeType || 'audio/webm' });
+        const arr = await blob.arrayBuffer();
+        const audio = await ctx.decodeAudioData(arr);
+        const raw = audio.getChannelData(0);
+        resolve({
+          x: dsp.resampleLinear(raw, audio.sampleRate, dsp.SR),
+          durationS: audio.duration,
+        });
+      };
+
+      activeStop = finish;
+      timer = setInterval(() => {
+        const sec = (performance.now() - t0) / 1000;
+        analyser.getByteTimeDomainData(buf);
+        let sum = 0;
+        for (let i = 0; i < buf.length; i++) {
+          const v = (buf[i] - 128) / 128;
+          sum += v * v;
+        }
+        const rms = Math.sqrt(sum / buf.length);
+        onTick(sec, Math.min(1, rms * 3));
+        if (sec >= MAX_SEC) finish();
+      }, 100);
+
+      rec.start(200);
+    } catch (e) {
+      reject(e);
+    }
+  });
 }
 
 /* ------------------------------------------------------------ 会话 */
 
 async function runSession() {
   cancelled = false;
-  let accepted = null;
-  let lastGate = null;
+  $('step-title').textContent = '说一句话';
+  $('step-prompt').textContent = '想说什么就说什么，说完按「停止并分析」';
+  $('rec-time').textContent = '00:00.0';
+  $('level-fill').style.width = '0%';
+  $('status').textContent = '准备好就开始';
+  show('screen-record');
 
-  for (let attempt = 0; attempt < 2 && !accepted; attempt++) {
-    $('step-index').textContent = '';
-    $('step-title').textContent = '说一句话';
-    $('step-prompt').textContent = '随便说什么都可以，自然地说 5 秒左右';
-    $('progress-fill').style.width = '0%';
-    $('status').textContent = '准备中…';
-    show('screen-record');
-
-    const x = await recordOnce((elapsed) => {
-      $('progress-fill').style.width = `${(elapsed / TOTAL_SEC) * 100}%`;
-      $('status').textContent = elapsed < LEAD_SEC
-        ? `保持安静… ${(LEAD_SEC - elapsed).toFixed(1)} 秒`
-        : '现在说：任何一句话';
+  let data;
+  try {
+    data = await recordManual((sec, level) => {
+      $('rec-time').textContent = fmtTime(sec);
+      $('level-fill').style.width = `${Math.round(level * 100)}%`;
     });
+  } catch (e) {
+    $('perm-warn').textContent = e.message || String(e);
+    $('perm-warn').classList.remove('hidden');
+    show('screen-home');
+    return;
+  }
+  activeStop = null;
+  if (cancelled) return;
 
-    if (cancelled) return;
-
-    const gate = dsp.qualityGate(x, dsp.SR, LEAD_SEC);
-    lastGate = gate;
-    if (gate.ok) accepted = x;
-    else if (attempt === 0) {
-      $('status').textContent = `这次没通过（${gate.reasons.join('、')}），再来一次…`;
-      await sleep(1200);
-    } else {
-      accepted = x;
-    }
+  const dur = data.x.length / dsp.SR;
+  if (dur < 2) {
+    $('perm-warn').textContent = '太短了，至少说 2 秒。';
+    $('perm-warn').classList.remove('hidden');
+    show('screen-home');
+    return;
   }
 
   $('status').textContent = '分析中…';
   show('screen-analyzing');
   await sleep(60);
 
-  const { report, meta } = analyzeSentence(accepted);
-  const failed = lastGate && !lastGate.ok
-    ? [{ step: '本次录音', reasons: lastGate.reasons }]
-    : [];
-  renderReport(report, failed);
+  const { report, meta } = analyzeSentence(data.x);
+  renderReport(report, []);
   saveHistory(meta);
   show('screen-report');
 }
@@ -138,7 +171,7 @@ function renderReport(report, failed) {
 
   if (report.conclusion) {
     const box = document.createElement('div');
-    box.className = 'conclusion';
+    box.className = 'conclusion' + (report.conclusion.lowConf ? ' low' : '');
     const kicker = document.createElement('div');
     kicker.className = 'conclusion-kicker';
     kicker.textContent = '分析结论';
@@ -193,7 +226,31 @@ function renderReport(report, failed) {
       text.className = 'item-text';
       text.textContent = item.text;
 
-      body.append(head, text);
+      if (item.viz) {
+        const viz = document.createElement('div');
+        viz.className = `viz ${item.viz.state}`;
+        const track = document.createElement('div');
+        track.className = 'viz-track';
+        const band = document.createElement('div');
+        band.className = 'viz-band';
+        const mid = document.createElement('div');
+        mid.className = 'viz-mid';
+        const dot = document.createElement('div');
+        dot.className = 'viz-dot';
+        dot.style.left = `${50 + (item.viz.p / 4) * 100}%`;
+        track.append(band, mid, dot);
+        const note = document.createElement('div');
+        note.className = 'viz-note';
+        const word = item.viz.p > 0 ? item.viz.posWord : item.viz.negWord;
+        if (item.viz.dev < 0.15) note.textContent = '在参考带中心';
+        else if (item.viz.state === 'in') note.textContent = `区间内 · ${word} ${item.viz.dev.toFixed(1)} 个带宽`;
+        else if (item.viz.state === 'out') note.textContent = `偏${word} · ${item.viz.dev.toFixed(1)} 个带宽（区间外）`;
+        else note.textContent = `远超 · ${item.viz.dev.toFixed(1)} 个带宽`;
+        viz.append(track, note);
+        body.append(head, viz, text);
+      } else {
+        body.append(head, text);
+      }
       wrap.append(bar, body);
       root.appendChild(wrap);
     }
@@ -291,8 +348,13 @@ $('btn-start').addEventListener('click', async () => {
   }
 });
 
+$('btn-stop').addEventListener('click', () => {
+  if (activeStop) activeStop();
+});
+
 $('btn-cancel').addEventListener('click', () => {
   cancelled = true;
+  if (activeStop) activeStop();
   show('screen-home');
 });
 
