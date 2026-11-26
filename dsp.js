@@ -429,6 +429,13 @@ export function toneMatch(f0, expected, refHz) {
 export const F0_MEAN = 274.0;
 export const F0_SD = 21.0;
 
+/* 人群参考区间（文献/常用范围，非诊断标准） */
+export const F0_FEMALE_BAND = [165, 255];   // 成人女声说话常见范围 Hz
+export const VTL_FEMALE_BAND = [13.0, 16.0]; // 成人女声声道长度 cm（校准后）
+export const VTL_MALE_BAND = [16.5, 19.5];
+export const CPP_REF_SAMPLE = 1.5;           // 同工具参考女声样本的 CPP（相对基准）
+export const RATE_BAND = [4.0, 7.5];         // 普通话日常语速 音节/秒
+
 function erf(x) {
   const sign = x < 0 ? -1 : 1;
   const ax = Math.abs(x);
@@ -570,7 +577,31 @@ export function speechFormants(x, f0, fs = SR) {
   };
 }
 
-/** 时长、有效发声占比、句中停顿次数 */
+export function speechVTL(x, f0, fs = SR) {
+  const W = Math.round(0.04 * fs);
+  const H = Math.max(1, Math.round(0.01 * fs));
+  const diffs = [];
+  const n = Math.min(f0.length, Math.floor((x.length - W) / H) + 1);
+  for (let i = 0; i < n; i++) {
+    if (Number.isNaN(f0[i])) continue;
+    const s = i * H;
+    const p = lpcPeaks(x.subarray(s, s + W), fs);
+    if (p.length < 2) continue;
+    for (let j = 1; j < p.length; j++) {
+      const d = p[j] - p[j - 1];
+      if (d > 300 && d < 1800) diffs.push(d);
+    }
+  }
+  if (diffs.length < 20) return null;
+  const spacing = median(diffs);
+  return {
+    vtlCm: (34300 / (2 * spacing)) * 0.83,  // 校准系数：均匀管公式在高频段偏高
+    spacingHz: spacing,
+    n: diffs.length,
+  };
+}
+
+/** 时长、有效发声占比、句中停顿次数、音节数/语速 */
 export function speechRhythm(x, fs = SR) {
   const rms = frameRms(x, fs);
   if (!rms.length) return null;
@@ -595,25 +626,50 @@ export function speechRhythm(x, fs = SR) {
     }
   }
   const frames = last - first + 1;
+  const activeS = activeCount * 0.01;
+
+  // 平滑后找能量峰，估音节数（每 120ms 最多一个）
+  const sm = new Float32Array(rms.length);
+  for (let i = 0; i < rms.length; i++) {
+    let s = 0, n = 0;
+    for (let j = Math.max(0, i - 2); j <= Math.min(rms.length - 1, i + 2); j++) { s += rms[j]; n++; }
+    sm[i] = s / n;
+  }
+  const peaks = [];
+  for (let i = first + 1; i < last; i++) {
+    if (sm[i] <= th) continue;
+    if (sm[i] >= sm[i - 1] && sm[i] > sm[i + 1]) {
+      if (!peaks.length || i - peaks[peaks.length - 1] >= 12) peaks.push(i);
+      else if (sm[i] > sm[peaks[peaks.length - 1]]) peaks[peaks.length - 1] = i;
+    }
+  }
+  const syllables = peaks.length;
+  const rate = activeS > 0 ? syllables / activeS : 0;
+
   return {
     durationS: frames * 0.01,
-    activeS: activeCount * 0.01,
+    activeS,
     activeRatio: activeCount / frames,
     pauses,
+    syllables,
+    rate,
     noiseRms: noise,
     peakRms: peak,
   };
 }
 
-export function buildSpeechReport({ f0Median, f0RangeSt, formants, cppMedian, rhythm }) {
+export function buildSpeechReport({ f0Median, f0RangeSt, formants, cppMedian, rhythm, vtl }) {
   const sections = [];
   const priority = [];
+  const notes = [];
 
+  const [fLo, fHi] = F0_FEMALE_BAND;
   if (f0Median != null) {
     const pct = f0Percentile(f0Median);
+    const inBand = f0Median >= fLo && f0Median <= fHi;
     const items = [{
-      label: '说话 F0 中位数', value: `${f0Median.toFixed(0)} Hz`, kind: 'percentile',
-      text: `位于女声参照分布的第 ${pct.toFixed(0)} 百分位`,
+      label: '说话 F0 中位数', value: `${f0Median.toFixed(0)} Hz`, kind: 'interval',
+      text: `女声说话参考 ${fLo}–${fHi} Hz（${inBand ? '区间内' : '区间外'}）；按持续元音参照为第 ${pct.toFixed(0)} 百分位`,
     }];
     if (f0RangeSt != null) {
       items.push({
@@ -622,53 +678,71 @@ export function buildSpeechReport({ f0Median, f0RangeSt, formants, cppMedian, rh
       });
     }
     sections.push({ title: '音高', items });
-    if (Math.abs((f0Median - F0_MEAN) / F0_SD) > 0.5) priority.push(['音高（远离参照分布中心）', 1]);
+    notes.push(`音高 ${f0Median.toFixed(0)} Hz，${inBand ? '在' : '不在'}女声常见范围内`);
+    if (!inBand) priority.push(['音高（' + (f0Median < fLo ? '偏低' : '偏高') + '）', 2]);
   }
 
-  if (formants && formants.F1 != null) {
-    const items = [{
-      label: 'F1 中位数（发声帧）', value: `${formants.F1.toFixed(0)} Hz`, kind: 'self_only',
-      text: `取自 ${formants.nFrames} 个有声帧；整句话元音不固定，只看自身变化`,
-    }];
-    if (formants.F2 != null) {
+  if (vtl || (formants && formants.F1 != null)) {
+    const items = [];
+    const [vLo, vHi] = VTL_FEMALE_BAND;
+    if (vtl) {
+      const inBand = vtl.vtlCm >= vLo && vtl.vtlCm <= vHi;
       items.push({
-        label: 'F2 中位数（发声帧）', value: `${formants.F2.toFixed(0)} Hz`, kind: 'self_only',
-        text: '反映口腔前部的共鸣位置，仅与自己的历史比较',
+        label: '声道长度（VTL 估算）', value: `${vtl.vtlCm.toFixed(1)} cm`, kind: 'interval',
+        text: `女声参考 ${vLo}–${vHi} cm，男声 ${VTL_MALE_BAND[0]}–${VTL_MALE_BAND[1]} cm（${inBand ? '区间内' : '区间外'}）；由 ${vtl.n} 个共振峰间距估算，误差约 ±1.5 cm`,
       });
+      notes.push(`声道长度 ${vtl.vtlCm.toFixed(1)} cm，${inBand ? '在' : '超出'}女声参考范围`);
+      if (!inBand) priority.push(['共振（VTL ' + (vtl.vtlCm > vHi ? '偏长' : '偏短') + '）', 3]);
     }
-    if (formants.F1 != null && formants.F2 != null) {
+    if (formants && formants.F1 != null) {
       items.push({
-        label: 'F2–F1 距离', value: `${(formants.F2 - formants.F1).toFixed(0)} Hz`, kind: 'self_only',
-        text: '越大通常表示舌位越前；同样只做自比',
+        label: 'F1 中位数（发声帧）', value: `${formants.F1.toFixed(0)} Hz`, kind: 'self_only',
+        text: `取自 ${formants.nFrames} 个有声帧；整句话元音不固定，只看自身变化`,
       });
+      if (formants.F2 != null) {
+        items.push({
+          label: 'F2 中位数（发声帧）', value: `${formants.F2.toFixed(0)} Hz`, kind: 'self_only',
+          text: '反映口腔前部的共鸣位置，仅与自己的历史比较',
+        });
+      }
     }
-    sections.push({ title: '共振', items });
+    if (items.length) sections.push({ title: '共振', items });
   }
 
   if (cppMedian != null) {
+    const diff = cppMedian - CPP_REF_SAMPLE;
     sections.push({
       title: '音质',
       items: [{
         label: 'CPP', value: `${cppMedian.toFixed(1)} dB`, kind: 'self_only',
-        text: '无人群参照（设备差异大于性别差异），仅与同设备历史比较',
+        text: `同工具参考女声 ${CPP_REF_SAMPLE} dB；与参考差值 ${diff >= 0 ? '+' : ''}${diff.toFixed(1)} dB（设备相关，只做相对比较）`,
       }],
     });
+    notes.push(`CPP ${cppMedian.toFixed(1)} dB，相对参考 ${diff >= 0 ? '+' : ''}${diff.toFixed(1)} dB`);
   }
 
   if (rhythm && rhythm.durationS > 0) {
+    const rate = rhythm.rate || 0;
+    const inBand = rate >= RATE_BAND[0] && rate <= RATE_BAND[1];
     sections.push({
       title: '节奏',
       items: [
         {
-          label: '有效发声', value: `${rhythm.activeS.toFixed(1)} 秒`, kind: 'self_only',
-          text: `这句里真正出声的部分；发声占比 ${(rhythm.activeRatio * 100).toFixed(0)}%`,
+          label: '语速（估算）', value: `${rate.toFixed(1)} 音节/秒`, kind: 'interval',
+          text: `普通话日常语速参考 ${RATE_BAND[0]}–${RATE_BAND[1]} 音节/秒（${inBand ? '区间内' : '区间外'}）；本句 ${rhythm.syllables} 个音节 / ${rhythm.activeS.toFixed(1)} 秒`,
         },
         {
           label: '句中停顿', value: `${rhythm.pauses} 次`, kind: 'self_only',
-          text: '≥0.25 秒的静音段；停顿多不一定是问题，只记录',
+          text: '≥0.25 秒的静音段；参考 0–3 次/句（弱基准）',
+        },
+        {
+          label: '有效发声', value: `${rhythm.activeS.toFixed(1)} 秒`, kind: 'self_only',
+          text: `这句里真正出声的部分，发声占比 ${(rhythm.activeRatio * 100).toFixed(0)}%`,
         },
       ],
     });
+    notes.push(`语速 ${rate.toFixed(1)} 音节/秒，${inBand ? '在' : '不在'}日常范围内`);
+    if (!inBand) priority.push(['语速（' + (rate < RATE_BAND[0] ? '偏慢' : '偏快') + '）', 1]);
   }
 
   if (!sections.length) {
@@ -682,9 +756,19 @@ export function buildSpeechReport({ f0Median, f0RangeSt, formants, cppMedian, rh
   }
 
   priority.sort((p, q) => q[1] - p[1]);
+  const top = priority.slice(0, 3);
+  const conclusion = {
+    headline: sections.length && sections[0].title !== '没有测到有效声音'
+      ? (top.length ? `这次有 ${top.length} 项偏离参考范围` : '四项都在参考范围内')
+      : '没有可用结论',
+    text: notes.length ? notes.join('；') + '。' : '这句话里没有测到稳定的有声段。',
+    points: top.map((p) => p[0]),
+  };
+
   return {
     sections,
-    priority: priority.slice(0, 2).map((p) => p[0]),
-    disclaimer: '本报告基于一整句话，元音不固定，共振数值只适合与自己的历史比较，不适合与人群区间对照。所有数值不构成医疗建议。',
+    conclusion,
+    priority: top.slice(0, 2).map((p) => p[0]),
+    disclaimer: '参考区间来自公开的成人女声与嗓音研究，是人群统计范围，不是诊断标准。设备、语速、句子内容都会影响数值；VTL 为估算值。',
   };
 }
