@@ -525,3 +525,166 @@ export function buildReport({ f0Median, f0RangeSt, formants, cppMedian, tones })
     disclaimer: '本报告表示与参考人群的统计距离，不代表他人对你的性别判断。所有数值不构成医疗建议。',
   };
 }
+
+/* ---------------------------------------------------------------- 任意语句 */
+
+function median(arr) {
+  if (!arr.length) return null;
+  const v = arr.slice().sort((a, b) => a - b);
+  const m = v.length >> 1;
+  return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
+}
+
+export function frameRms(x, fs = SR, winS = 0.025, hopS = 0.01) {
+  const W = Math.round(winS * fs);
+  const H = Math.max(1, Math.round(hopS * fs));
+  const n = Math.max(0, Math.floor((x.length - W) / H) + 1);
+  const out = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    let s = 0;
+    for (let j = 0; j < W; j++) { const v = x[i * H + j]; s += v * v; }
+    out[i] = Math.sqrt(s / W);
+  }
+  return out;
+}
+
+/**
+ * 在整句话里取「发声帧」的共振峰中位数。
+ * 元音不固定，所以不给人群区间，只用于和自己比。
+ */
+export function speechFormants(x, f0, fs = SR) {
+  const W = Math.round(0.04 * fs);
+  const H = Math.max(1, Math.round(0.01 * fs));
+  const F1 = [], F2 = [], F3 = [];
+  const n = Math.min(f0.length, Math.floor((x.length - W) / H) + 1);
+  for (let i = 0; i < n; i++) {
+    if (Number.isNaN(f0[i])) continue;
+    const s = i * H;
+    const p = lpcPeaks(x.subarray(s, s + W), fs);
+    if (p.length >= 2) { F1.push(p[0]); F2.push(p[1]); if (p[2]) F3.push(p[2]); }
+  }
+  return {
+    F1: median(F1), F2: median(F2), F3: median(F3),
+    nFrames: F1.length,
+    spread: F2.length > 1 ? Math.max(...F2) - Math.min(...F2) : null,
+  };
+}
+
+/** 时长、有效发声占比、句中停顿次数 */
+export function speechRhythm(x, fs = SR) {
+  const rms = frameRms(x, fs);
+  if (!rms.length) return null;
+  const sorted = Array.from(rms).sort((a, b) => a - b);
+  const noise = sorted[Math.floor(sorted.length * 0.1)] || 1e-9;
+  const peak = sorted[sorted.length - 1] || 0;
+  const th = Math.max(noise * 2.5, peak * 0.08, 1e-4);
+
+  let first = -1, last = -1, activeCount = 0;
+  for (let i = 0; i < rms.length; i++) {
+    if (rms[i] > th) { if (first < 0) first = i; last = i; activeCount++; }
+  }
+  if (first < 0) return { durationS: 0, activeS: 0, activeRatio: 0, pauses: 0, noiseRms: noise, peakRms: peak };
+
+  let pauses = 0, silentRun = 0;
+  for (let i = first; i <= last; i++) {
+    if (rms[i] <= th) {
+      silentRun++;
+    } else {
+      if (silentRun >= 25) pauses++;   // ≥0.25 s 算一次停顿
+      silentRun = 0;
+    }
+  }
+  const frames = last - first + 1;
+  return {
+    durationS: frames * 0.01,
+    activeS: activeCount * 0.01,
+    activeRatio: activeCount / frames,
+    pauses,
+    noiseRms: noise,
+    peakRms: peak,
+  };
+}
+
+export function buildSpeechReport({ f0Median, f0RangeSt, formants, cppMedian, rhythm }) {
+  const sections = [];
+  const priority = [];
+
+  if (f0Median != null) {
+    const pct = f0Percentile(f0Median);
+    const items = [{
+      label: '说话 F0 中位数', value: `${f0Median.toFixed(0)} Hz`, kind: 'percentile',
+      text: `位于女声参照分布的第 ${pct.toFixed(0)} 百分位`,
+    }];
+    if (f0RangeSt != null) {
+      items.push({
+        label: 'F0 半音范围（P10–P90）', value: `${f0RangeSt.toFixed(1)} 半音`, kind: 'self_only',
+        text: '一整句话里的音高起伏，仅与自己的历史比较',
+      });
+    }
+    sections.push({ title: '音高', items });
+    if (Math.abs((f0Median - F0_MEAN) / F0_SD) > 0.5) priority.push(['音高（远离参照分布中心）', 1]);
+  }
+
+  if (formants && formants.F1 != null) {
+    const items = [{
+      label: 'F1 中位数（发声帧）', value: `${formants.F1.toFixed(0)} Hz`, kind: 'self_only',
+      text: `取自 ${formants.nFrames} 个有声帧；整句话元音不固定，只看自身变化`,
+    }];
+    if (formants.F2 != null) {
+      items.push({
+        label: 'F2 中位数（发声帧）', value: `${formants.F2.toFixed(0)} Hz`, kind: 'self_only',
+        text: '反映口腔前部的共鸣位置，仅与自己的历史比较',
+      });
+    }
+    if (formants.F1 != null && formants.F2 != null) {
+      items.push({
+        label: 'F2–F1 距离', value: `${(formants.F2 - formants.F1).toFixed(0)} Hz`, kind: 'self_only',
+        text: '越大通常表示舌位越前；同样只做自比',
+      });
+    }
+    sections.push({ title: '共振', items });
+  }
+
+  if (cppMedian != null) {
+    sections.push({
+      title: '音质',
+      items: [{
+        label: 'CPP', value: `${cppMedian.toFixed(1)} dB`, kind: 'self_only',
+        text: '无人群参照（设备差异大于性别差异），仅与同设备历史比较',
+      }],
+    });
+  }
+
+  if (rhythm && rhythm.durationS > 0) {
+    sections.push({
+      title: '节奏',
+      items: [
+        {
+          label: '有效发声', value: `${rhythm.activeS.toFixed(1)} 秒`, kind: 'self_only',
+          text: `这句里真正出声的部分；发声占比 ${(rhythm.activeRatio * 100).toFixed(0)}%`,
+        },
+        {
+          label: '句中停顿', value: `${rhythm.pauses} 次`, kind: 'self_only',
+          text: '≥0.25 秒的静音段；停顿多不一定是问题，只记录',
+        },
+      ],
+    });
+  }
+
+  if (!sections.length) {
+    sections.push({
+      title: '没有测到有效声音',
+      items: [{
+        label: '结果', value: '—', kind: 'self_only',
+        text: '这句话里没有检测到稳定的有声段。换个安静的地方，正常音量再说一次。',
+      }],
+    });
+  }
+
+  priority.sort((p, q) => q[1] - p[1]);
+  return {
+    sections,
+    priority: priority.slice(0, 2).map((p) => p[0]),
+    disclaimer: '本报告基于一整句话，元音不固定，共振数值只适合与自己的历史比较，不适合与人群区间对照。所有数值不构成医疗建议。',
+  };
+}
