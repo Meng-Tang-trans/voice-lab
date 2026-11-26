@@ -226,3 +226,19 @@ button:disabled { opacity: 0.45; cursor: default; }
 
 .conclusion-kicker{font-size:11px;font-weight:700;letter-spacing:.12em;color:#2b7a9b;margin-bottom:4px}
 
+
+.rec-top{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:6px 0 10px}
+.rec-time{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:34px;font-weight:600;color:#123;letter-spacing:.02em}
+.rec-live{font-size:11px;letter-spacing:.12em;color:#c0392b}
+.level{height:10px;border-radius:5px;background:#e6eef3;overflow:hidden;margin-bottom:14px}
+.level-fill{height:100%;width:0%;background:linear-gradient(90deg,#2b7a9b,#4aa3c7);transition:width .08s linear}
+.viz{margin:8px 0 2px}
+.viz-track{position:relative;height:10px;border-radius:5px;background:#eef3f7}
+.viz-band{position:absolute;left:25%;right:25%;top:0;bottom:0;background:#c3dcee;border-left:1px solid #8fb3c9;border-right:1px solid #8fb3c9}
+.viz-mid{position:absolute;left:50%;top:-3px;bottom:-3px;width:1px;background:#9db4c2}
+.viz-dot{position:absolute;top:50%;width:12px;height:12px;border-radius:50%;background:#2b7a9b;border:2px solid #fff;box-shadow:0 0 0 1px #2b7a9b;transform:translate(-50%,-50%)}
+.viz.out .viz-dot{background:#d9822b;box-shadow:0 0 0 1px #d9822b}
+.viz.far .viz-dot{background:#c0392b;box-shadow:0 0 0 1px #c0392b}
+.viz-note{font-size:10.5px;color:#567;margin-top:3px}
+.conclusion.low{background:#fff8e8;border-color:#e8c98a}
+.conclusion.low .conclusion-head{color:#8a5a00}
