@@ -22,8 +22,8 @@
       <ul class="checks">
         <li>安静房间，关掉风扇和空调</li>
         <li>手机离嘴约 15 厘米，全程不要移动</li>
-        <li>先保持安静 1 秒，然后自然地说 5 秒左右</li>
-        <li>不用刻意压低或拔高，像平时说话就行</li>
+        <li>说多久由你决定，建议 5–20 秒，上限 60 秒</li>
+        <li>说完按「停止并分析」，不用刻意压低或拔高</li>
       </ul>
     </div>
 
@@ -45,11 +45,16 @@
   <section id="screen-record" class="screen hidden">
     <div class="step-line"><span id="step-index"></span></div>
     <h2 id="step-title" class="step-title">说一句话</h2>
-    <p id="step-prompt" class="lede">随便说什么都可以，自然地说 5 秒左右</p>
+    <p id="step-prompt" class="lede">想说什么就说什么，说完按「停止并分析」</p>
 
-    <div class="progress"><div id="progress-fill"></div></div>
-    <p id="status" class="status">准备中…</p>
+    <div class="rec-top">
+      <span id="rec-time" class="rec-time">00:00.0</span>
+      <span class="rec-live">● REC</span>
+    </div>
+    <div class="level"><div id="level-fill"></div></div>
+    <p id="status" class="status">准备好就开始</p>
 
+    <button id="btn-stop" class="primary">停止并分析</button>
     <button id="btn-cancel" class="ghost">取消</button>
   </section>
 
