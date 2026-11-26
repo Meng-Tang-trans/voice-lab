@@ -136,6 +136,33 @@ function renderReport(report, failed) {
   const root = $('report-body');
   root.innerHTML = '';
 
+  if (report.conclusion) {
+    const box = document.createElement('div');
+    box.className = 'conclusion';
+    const kicker = document.createElement('div');
+    kicker.className = 'conclusion-kicker';
+    kicker.textContent = '分析结论';
+    const head = document.createElement('div');
+    head.className = 'conclusion-head';
+    head.textContent = report.conclusion.headline;
+    const text = document.createElement('p');
+    text.className = 'conclusion-text';
+    text.textContent = report.conclusion.text;
+    box.append(kicker, head, text);
+
+    if (report.conclusion.points && report.conclusion.points.length) {
+      const ul = document.createElement('ul');
+      ul.className = 'priority';
+      for (const pt of report.conclusion.points) {
+        const li = document.createElement('li');
+        li.textContent = pt;
+        ul.appendChild(li);
+      }
+      box.appendChild(ul);
+    }
+    root.appendChild(box);
+  }
+
   for (const sec of report.sections) {
     const h = document.createElement('div');
     h.className = 'sec-title';
