@@ -524,3 +524,48 @@ button:disabled { opacity: 0.45; cursor: default; box-shadow: none; }
   color: #8B929B;
   margin-top: 4px;
 }
+
+/* ---------- 平板与宽屏 ---------- */
+
+@media (min-width: 700px) {
+  .wrap { max-width: 760px; padding: 36px 28px 64px; }
+  h1 { font-size: 28px; }
+  .lede { font-size: 15px; line-height: 1.85; }
+  .card { padding: 20px 22px; border-radius: 20px; }
+  .checks { line-height: 2.1; }
+  .mode { max-width: 420px; margin-left: auto; margin-right: auto; }
+  .mode-hint { max-width: 620px; margin-left: auto; margin-right: auto; }
+  .step-title { font-size: 24px; }
+  .rec-time { font-size: 44px; }
+  .status { font-size: 18px; }
+  button.primary, button.ghost {
+    max-width: 420px;
+    margin-left: auto;
+    margin-right: auto;
+    display: block;
+  }
+  .item { padding: 16px 18px; }
+  .conclusion { padding: 22px 26px; }
+  .report-mode { max-width: 640px; }
+}
+
+@media (min-width: 1024px) {
+  .wrap { max-width: 920px; }
+  #screen-home .lede,
+  #screen-home .card,
+  #screen-home .footnote,
+  #screen-home .footer {
+    max-width: 640px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  #report-body {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 28px;
+    align-items: start;
+  }
+  #report-body > .wide,
+  #report-body > .conclusion { grid-column: 1 / -1; }
+  .sec-title { margin-top: 20px; }
+}

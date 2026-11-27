@@ -217,10 +217,13 @@ function renderReport(report, failed) {
   }
 
   for (const sec of report.sections) {
+    const box = document.createElement('div');
+    box.className = 'sec';
+
     const h = document.createElement('div');
     h.className = 'sec-title';
     h.textContent = sec.title;
-    root.appendChild(h);
+    box.appendChild(h);
 
     for (const item of sec.items) {
       const wrap = document.createElement('div');
@@ -272,11 +275,14 @@ function renderReport(report, failed) {
         body.append(head, text);
       }
       wrap.append(bar, body);
-      root.appendChild(wrap);
+      box.appendChild(wrap);
     }
+    root.appendChild(box);
   }
 
   if (report.priority.length) {
+    const box = document.createElement('div');
+    box.className = 'sec wide';
     const h = document.createElement('div');
     h.className = 'sec-title';
     h.textContent = '优先级';
@@ -287,10 +293,13 @@ function renderReport(report, failed) {
       li.textContent = p;
       ul.appendChild(li);
     }
-    root.append(h, ul);
+    box.append(h, ul);
+    root.appendChild(box);
   }
 
   if (failed.length) {
+    const box = document.createElement('div');
+    box.className = 'sec wide';
     const h = document.createElement('div');
     h.className = 'sec-title';
     h.textContent = '质量提示';
@@ -301,7 +310,8 @@ function renderReport(report, failed) {
       li.textContent = `${f.step}：${f.reasons.join('、')}（已降级使用）`;
       ul.appendChild(li);
     }
-    root.append(h, ul);
+    box.append(h, ul);
+    root.appendChild(box);
   }
 
   const d = document.createElement('p');
