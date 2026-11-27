@@ -214,72 +214,65 @@ button:disabled { opacity: 0.45; cursor: default; box-shadow: none; }
   margin: 0 0 16px;
 }
 
-/* 支持 */
-.support-link {
+/* 页脚 */
+.footer {
+  margin-top: 30px;
+  padding-top: 22px;
+  border-top: 1px solid var(--line);
   text-align: center;
-  margin: 22px 0 0;
 }
 
-button.link {
-  width: auto;
-  margin: 0;
-  padding: 8px 12px;
-  background: transparent;
-  color: var(--pink-deep);
-  font-size: 13.5px;
-  font-weight: 400;
-  border-radius: 999px;
-  box-shadow: none;
-}
-
-button.link:active { background: rgba(247, 168, 184, 0.14); }
-
-.heart-btn {
+.heart-mini {
   display: block;
-  width: 104px;
-  height: 104px;
-  margin: 28px auto 14px;
+  width: 44px;
+  height: 44px;
+  margin: 0 auto 8px;
   padding: 0;
   border-radius: 50%;
-  background: linear-gradient(150deg, #FDF0F3, #FBE1E6);
-  box-shadow: 0 8px 28px rgba(184, 90, 117, 0.14);
-  color: #E8A6B4;
+  background: transparent;
+  color: #D6C3C9;
+  box-shadow: none;
   cursor: pointer;
-  transition: transform 0.18s ease, box-shadow 0.25s ease, color 0.25s ease;
+  transition: transform 0.18s ease, color 0.2s ease;
 }
 
-.heart-btn svg {
-  width: 52px;
-  height: 52px;
-  margin: 26px auto 0;
+.heart-mini svg {
   display: block;
+  width: 26px;
+  height: 26px;
+  margin: 0 auto;
   fill: none;
   stroke: currentColor;
   stroke-width: 1.6;
   stroke-linejoin: round;
-  transition: fill 0.25s ease, stroke 0.25s ease;
+  transition: fill 0.2s ease, stroke 0.2s ease;
 }
 
-.heart-btn:active { transform: scale(0.94); }
+.heart-mini:active { transform: scale(0.9); }
 
-.heart-btn.liked {
-  color: #D9738D;
-  box-shadow: 0 10px 30px rgba(184, 90, 117, 0.24);
-}
+.heart-mini.liked { color: #D9738D; }
 
-.heart-btn.liked svg {
+.heart-mini.liked svg {
   fill: #F7A8B8;
   stroke: #D9738D;
 }
 
-.heart-hint {
-  text-align: center;
+.maker {
+  font-size: 12.5px;
   color: var(--muted);
-  font-size: 13px;
-  line-height: 1.8;
-  margin: 0 0 22px;
-  padding: 0 12px;
+  letter-spacing: 0.06em;
+  margin: 0 0 6px;
 }
+
+.star-link {
+  display: inline-block;
+  font-size: 12.5px;
+  color: var(--blue-deep);
+  text-decoration: none;
+  padding: 6px 4px;
+}
+
+.star-link:active { opacity: 0.7; }
 
 /* 录音 */
 .step-line { color: var(--muted); font-size: 13px; margin-bottom: 6px; }
