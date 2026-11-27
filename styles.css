@@ -593,3 +593,20 @@ body {
 .footer {
   padding-bottom: 8px;
 }
+
+/* 页脚爱心缩小：视觉变小，点击区域仍保留 */
+.heart-mini {
+  width: 36px;
+  height: 36px;
+  margin-bottom: 4px;
+}
+
+.heart-mini svg {
+  width: 18px;
+  height: 18px;
+}
+
+.like-count {
+  font-size: 11.5px;
+  margin-bottom: 6px;
+}
