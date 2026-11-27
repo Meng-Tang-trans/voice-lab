@@ -389,6 +389,38 @@ $('btn-history').addEventListener('click', () => {
 
 $('btn-back').addEventListener('click', () => show('screen-home'));
 
+/* ------------------------------------------------------------ 支持 */
+
+const REPO = 'https://github.com/Meng-Tang-trans/voice-lab';
+const LIKED_KEY = 'voicelab.liked';
+
+function applyLiked() {
+  const liked = localStorage.getItem(LIKED_KEY) === '1';
+  $('btn-heart').classList.toggle('liked', liked);
+  $('heart-hint').textContent = liked
+    ? '已打开过仓库。如果还没点，Star 按钮在页面右上角。'
+    : '点一下爱心，会打开仓库页面';
+}
+
+$('btn-support').addEventListener('click', () => {
+  applyLiked();
+  show('screen-support');
+});
+
+$('btn-support-back').addEventListener('click', () => show('screen-home'));
+
+$('btn-heart').addEventListener('click', () => {
+  window.open(REPO, '_blank', 'noopener');
+  localStorage.setItem(LIKED_KEY, '1');
+  applyLiked();
+});
+
+$('btn-issue').addEventListener('click', () => {
+  const title = encodeURIComponent('[反馈] ');
+  const body = encodeURIComponent('浏览器 / 机型：\n\n问题描述：\n\n复现步骤：\n');
+  window.open(`${REPO}/issues/new?title=${title}&body=${body}`, '_blank', 'noopener');
+});
+
 for (const btn of document.querySelectorAll('.mode-btn')) {
   btn.addEventListener('click', () => {
     direction = btn.dataset.dir;
