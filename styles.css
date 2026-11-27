@@ -569,3 +569,27 @@ button:disabled { opacity: 0.45; cursor: default; box-shadow: none; }
   #report-body > .conclusion { grid-column: 1 / -1; }
   .sec-title { margin-top: 20px; }
 }
+
+/* ---------- 内置浏览器底部工具栏遮挡（QQ / 微信等） ---------- */
+/* 这些 WebView 在页面上方浮一条工具栏，既不报告安全区也不缩减视口，
+   所以给底部留足可滚动余量，页脚才能翻到工具栏上方。 */
+
+body {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.wrap {
+  padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+}
+
+@media (max-width: 699px) {
+  .wrap {
+    padding-bottom: calc(120px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* 页脚自身再加一点下边距，避免贴住工具栏 */
+.footer {
+  padding-bottom: 8px;
+}
