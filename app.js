@@ -23,7 +23,7 @@ let direction = localStorage.getItem(DIR_KEY) === 'ftm' ? 'ftm' : 'mtf';
 
 const DIR_HINT = {
   mtf: '参照成人女声：说话 F0 常见 165–255 Hz，声道长度 13–16 cm。',
-  ftm: '参照成人男声：说话 F0 常见 90–160 Hz，声道长度 16.5–19.5 cm。睾酮会降低音高，但基本不改变声道长度。',
+  ftm: '参照成人男声：说话 F0 常见 100–150 Hz（Cao & Lei 2017，n=100），声道长度 16.5–19.5 cm。睾酮会降低音高，但基本不改变声道长度。',
 };
 
 function applyDirection() {

@@ -428,10 +428,15 @@ export const RATE_BAND = [4.0, 7.5];         // 普通话日常语速 音节/秒
 /* 方向相关参照：mtf = 女性化，ftm = 男性化
    注意口径：mean/sd 来自「持续元音（阴平单元音）」研究，只用于百分位换算；
    band 是「日常说话」的常见范围。两者口径不同，不可混用。
-   当前界面只展示 band，不展示百分位。 */
+   当前界面只展示 band，不展示百分位。
+
+   ftm.band 依据：Cao & Lei (2017), J Forensic Sci Med 3(4):217-222。
+   100 名普通话青年男性（均值 24.1 岁），朗读 F0 均值 128.4 Hz / 自由说话 122.4 Hz，
+   77% 的说话人中位数落在 100–140 Hz。故取 100–150、中心 125、半宽 25。
+   mtf.band 仍为通用范围，尚无同等级别的普通话女声说话统计可引。 */
 export const F0_REF = {
   mtf: { mean: 274.0, sd: 21.0, label: '女声', band: [165, 255], center: 210, half: 45 },
-  ftm: { mean: 162.0, sd: 21.0, label: '男声', band: [90, 160], center: 125, half: 35 },
+  ftm: { mean: 162.0, sd: 21.0, label: '男声', band: [100, 150], center: 125, half: 25 },
 };
 
 export const VTL_REF = {
