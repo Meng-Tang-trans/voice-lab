@@ -389,10 +389,45 @@ $('btn-history').addEventListener('click', () => {
 
 $('btn-back').addEventListener('click', () => show('screen-home'));
 
-/* ------------------------------------------------------------ 爱心（仅本地） */
+/* ------------------------------------------------------------ 爱心 */
+/* 本地状态 + 全局计数。计数走第三方计数器 abacus.jasoncameron.dev，
+   只在页脚进入视口时请求一次，失败就不显示数字，不影响其它功能。 */
 
 const LIKED_KEY = 'voicelab.liked';
 const heart = $('btn-heart');
+const countEl = $('like-count');
+
+const COUNTER_API = 'https://abacus.jasoncameron.dev';
+const COUNTER_NS = 'voice-lab-mengtang';
+const COUNTER_KEY = 'heart';
+
+async function counterFetch(path, ms = 5000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    const r = await fetch(`${COUNTER_API}/${path}/${COUNTER_NS}/${COUNTER_KEY}`, {
+      signal: ctrl.signal,
+      cache: 'no-store',
+    });
+    if (r.status === 404) return { value: 0 };
+    if (!r.ok) return null;
+    const j = await r.json();
+    return typeof j.value === 'number' ? j : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function renderCount(n) {
+  countEl.textContent = n == null ? '' : `${n} 人喜欢`;
+}
+
+async function loadCount() {
+  const j = await counterFetch('get');
+  renderCount(j ? j.value : null);
+}
 
 function applyLiked() {
   const liked = localStorage.getItem(LIKED_KEY) === '1';
@@ -400,13 +435,29 @@ function applyLiked() {
   heart.setAttribute('aria-pressed', liked ? 'true' : 'false');
 }
 
-heart.addEventListener('click', () => {
-  const liked = localStorage.getItem(LIKED_KEY) === '1';
-  localStorage.setItem(LIKED_KEY, liked ? '0' : '1');
+heart.addEventListener('click', async () => {
+  if (localStorage.getItem(LIKED_KEY) === '1') return; // 一次性，避免重复计数
+  localStorage.setItem(LIKED_KEY, '1');
   applyLiked();
+  const j = await counterFetch('hit');
+  if (j) renderCount(j.value);
 });
 
 applyLiked();
+
+/* 懒加载：页脚进入视口才请求，没滚到这里的人不会发出任何请求 */
+const footerEl = document.querySelector('.footer');
+if (footerEl && 'IntersectionObserver' in window) {
+  const io = new IntersectionObserver((entries) => {
+    if (entries.some((e) => e.isIntersecting)) {
+      io.disconnect();
+      loadCount();
+    }
+  }, { rootMargin: '160px' });
+  io.observe(footerEl);
+} else if (footerEl) {
+  loadCount();
+}
 
 for (const btn of document.querySelectorAll('.mode-btn')) {
   btn.addEventListener('click', () => {
