@@ -425,6 +425,20 @@ export const VTL_MALE_BAND = [16.5, 19.5];
 export const CPP_REF_SAMPLE = 1.5;           // 同工具参考女声样本的 CPP（相对基准）
 export const RATE_BAND = [4.0, 7.5];         // 普通话日常语速 音节/秒
 
+/* 方向相关参照：mtf = 女性化，ftm = 男性化
+   注意口径：mean/sd 来自「持续元音（阴平单元音）」研究，只用于百分位换算；
+   band 是「日常说话」的常见范围。两者口径不同，不可混用。
+   当前界面只展示 band，不展示百分位。 */
+export const F0_REF = {
+  mtf: { mean: 274.0, sd: 21.0, label: '女声', band: [165, 255], center: 210, half: 45 },
+  ftm: { mean: 162.0, sd: 21.0, label: '男声', band: [90, 160], center: 125, half: 35 },
+};
+
+export const VTL_REF = {
+  mtf: { band: [13.0, 16.0], center: 14.5, half: 1.5, label: '女声' },
+  ftm: { band: [16.5, 19.5], center: 18.0, half: 1.5, label: '男声' },
+};
+
 function erf(x) {
   const sign = x < 0 ? -1 : 1;
   const ax = Math.abs(x);
@@ -433,8 +447,9 @@ function erf(x) {
   return sign * y;
 }
 
-export function f0Percentile(hz) {
-  return 0.5 * (1 + erf((hz - F0_MEAN) / F0_SD / Math.SQRT2)) * 100;
+export function f0Percentile(hz, direction = 'mtf') {
+  const ref = F0_REF[direction] || F0_REF.mtf;
+  return 0.5 * (1 + erf((hz - ref.mean) / ref.sd / Math.SQRT2)) * 100;
 }
 
 const FORMANT_REF = {
@@ -658,19 +673,21 @@ function makeViz(value, center, half, negWord, posWord) {
   };
 }
 
-export function buildSpeechReport({ f0Median, f0RangeSt, formants, cppMedian, rhythm, vtl, lowConf, durationS, voicedS }) {
+export function buildSpeechReport({ f0Median, f0RangeSt, formants, cppMedian, rhythm, vtl, lowConf, durationS, voicedS, direction = 'mtf' }) {
   const sections = [];
   const priority = [];
   const notes = [];
+  const dir = direction === 'ftm' ? 'ftm' : 'mtf';
+  const f0Ref = F0_REF[dir];
+  const vtlRef = VTL_REF[dir];
+  const [fLo, fHi] = f0Ref.band;
 
-  const [fLo, fHi] = F0_FEMALE_BAND;
   if (f0Median != null) {
-    const pct = f0Percentile(f0Median);
     const inBand = f0Median >= fLo && f0Median <= fHi;
     const items = [{
       label: '说话 F0 中位数', value: `${f0Median.toFixed(0)} Hz`, kind: 'interval',
-      viz: makeViz(f0Median, 210, 45, '偏低', '偏高'),
-      text: `女声说话参考 ${fLo}–${fHi} Hz（${inBand ? '区间内' : '区间外'}）；按持续元音参照为第 ${pct.toFixed(0)} 百分位`,
+      viz: makeViz(f0Median, f0Ref.center, f0Ref.half, '偏低', '偏高'),
+      text: `${f0Ref.label}说话参考 ${fLo}–${fHi} Hz（${inBand ? '区间内' : '区间外'}）`,
     }];
     if (f0RangeSt != null) {
       items.push({
@@ -679,21 +696,22 @@ export function buildSpeechReport({ f0Median, f0RangeSt, formants, cppMedian, rh
       });
     }
     sections.push({ title: '音高', items });
-    notes.push(`音高 ${f0Median.toFixed(0)} Hz，${inBand ? '在' : '不在'}女声常见范围内`);
+    notes.push(`音高 ${f0Median.toFixed(0)} Hz，${inBand ? '在' : '不在'}${f0Ref.label}常见范围内`);
     if (!inBand) priority.push(['音高（' + (f0Median < fLo ? '偏低' : '偏高') + '）', 2]);
   }
 
   if (vtl || (formants && formants.F1 != null)) {
     const items = [];
-    const [vLo, vHi] = VTL_FEMALE_BAND;
+    const [vLo, vHi] = vtlRef.band;
     if (vtl) {
       const inBand = vtl.vtlCm >= vLo && vtl.vtlCm <= vHi;
+      const other = vtlRef === VTL_REF.mtf ? VTL_REF.ftm : VTL_REF.mtf;
       items.push({
         label: '声道长度（VTL 估算）', value: `${vtl.vtlCm.toFixed(1)} cm`, kind: 'interval',
-        viz: makeViz(vtl.vtlCm, 14.5, 1.5, '偏短', '偏长'),
-        text: `女声参考 ${vLo}–${vHi} cm，男声 ${VTL_MALE_BAND[0]}–${VTL_MALE_BAND[1]} cm（${inBand ? '区间内' : '区间外'}）；由 ${vtl.n} 个共振峰间距估算，误差约 ±1.5 cm`,
+        viz: makeViz(vtl.vtlCm, vtlRef.center, vtlRef.half, '偏短', '偏长'),
+        text: `${vtlRef.label}参考 ${vLo}–${vHi} cm，${other.label} ${other.band[0]}–${other.band[1]} cm（${inBand ? '区间内' : '区间外'}）；由 ${vtl.n} 个共振峰间距估算，误差约 ±1.5 cm`,
       });
-      notes.push(`声道长度 ${vtl.vtlCm.toFixed(1)} cm，${inBand ? '在' : '超出'}女声参考范围`);
+      notes.push(`声道长度 ${vtl.vtlCm.toFixed(1)} cm，${inBand ? '在' : '超出'}${vtlRef.label}参考范围`);
       if (!inBand) priority.push(['共振（VTL ' + (vtl.vtlCm > vHi ? '偏长' : '偏短') + '）', 3]);
     }
     if (formants && formants.F1 != null) {
@@ -711,6 +729,26 @@ export function buildSpeechReport({ f0Median, f0RangeSt, formants, cppMedian, rh
     if (items.length) sections.push({ title: '共振', items });
   }
 
+  // 音高与共振是否同步——对 FTM 尤其关键，因为睾酮基本不改变声道长度
+  if (f0Median != null && vtl && vtl.vtlCm) {
+    const f0In = f0Median >= fLo && f0Median <= fHi;
+    const vIn = vtl.vtlCm >= vtlRef.band[0] && vtl.vtlCm <= vtlRef.band[1];
+    if (f0In !== vIn) {
+      const text = f0In
+        ? `音高已进入${f0Ref.label}参考范围，但声道长度估算 ${vtl.vtlCm.toFixed(1)} cm 还没有跟上。` +
+          (dir === 'ftm'
+            ? '睾酮会让声带变厚、音高下降，但基本不改变声道长度——所以"音低但共鸣还是偏小"是常见状态，共振需要单独练。'
+            : '音高到位不等于共振到位，共鸣位置需要单独练。')
+        : `声道长度估算 ${vtl.vtlCm.toFixed(1)} cm 已在${vtlRef.label}参考范围，但音高 ${f0Median.toFixed(0)} Hz 还偏${dir === 'ftm' ? '高' : '低'}。`;
+      sections.push({
+        title: '音高与共振是否同步',
+        items: [{ label: '一致性', value: '不同步', kind: 'interval', text }],
+      });
+      notes.push('音高与共振不同步');
+      priority.push(['共振（与音高不同步）', 3]);
+    }
+  }
+
   if (cppMedian != null) {
     const diff = cppMedian - CPP_REF_SAMPLE;
     sections.push({
@@ -718,7 +756,7 @@ export function buildSpeechReport({ f0Median, f0RangeSt, formants, cppMedian, rh
       items: [{
         label: 'CPP', value: `${cppMedian.toFixed(1)} dB`, kind: 'self_only',
         viz: makeViz(cppMedian, CPP_REF_SAMPLE, 1.5, '偏低', '偏高'),
-        text: `同工具参考女声 ${CPP_REF_SAMPLE} dB；与参考差值 ${diff >= 0 ? '+' : ''}${diff.toFixed(1)} dB（设备相关，只做相对比较）`,
+        text: `同工具参考样本 ${CPP_REF_SAMPLE} dB；与参考差值 ${diff >= 0 ? '+' : ''}${diff.toFixed(1)} dB（设备相关，只做相对比较）`,
       }],
     });
     notes.push(`CPP ${cppMedian.toFixed(1)} dB，相对参考 ${diff >= 0 ? '+' : ''}${diff.toFixed(1)} dB`);
@@ -780,6 +818,6 @@ export function buildSpeechReport({ f0Median, f0RangeSt, formants, cppMedian, rh
     sections,
     conclusion,
     priority: top.slice(0, 2).map((p) => p[0]),
-    disclaimer: '参考区间来自公开的成人女声与嗓音研究，是人群统计范围，不是诊断标准。设备、语速、句子内容都会影响数值；VTL 为估算值。',
+    disclaimer: `参考区间来自公开的成人${f0Ref.label}与嗓音研究，是人群统计范围，不是诊断标准。设备、语速、句子内容都会影响数值；VTL 为估算值。`,
   };
 }

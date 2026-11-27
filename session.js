@@ -11,7 +11,7 @@ export const MIN_SEC = 2;
  * @param {Float32Array} x  16 kHz PCM，长度由用户决定
  * @returns {{report: object, meta: object}}
  */
-export function analyzeSentence(x) {
+export function analyzeSentence(x, direction = 'mtf') {
   const f0 = dsp.medianFilter(dsp.yinTrack(x), 5);
   const stats = dsp.f0Stats(f0);
   const formants = dsp.speechFormants(x, f0);
@@ -33,6 +33,7 @@ export function analyzeSentence(x) {
     lowConf,
     durationS,
     voicedS,
+    direction,
   });
 
   return {

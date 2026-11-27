@@ -16,6 +16,23 @@ function show(id) {
   window.scrollTo({ top: 0 });
 }
 
+/* ------------------------------------------------------------ 方向 */
+
+const DIR_KEY = 'voicelab.dir';
+let direction = localStorage.getItem(DIR_KEY) === 'ftm' ? 'ftm' : 'mtf';
+
+const DIR_HINT = {
+  mtf: '参照成人女声：说话 F0 常见 165–255 Hz，声道长度 13–16 cm。',
+  ftm: '参照成人男声：说话 F0 常见 90–160 Hz，声道长度 16.5–19.5 cm。睾酮会降低音高，但基本不改变声道长度。',
+};
+
+function applyDirection() {
+  for (const btn of document.querySelectorAll('.mode-btn')) {
+    btn.classList.toggle('active', btn.dataset.dir === direction);
+  }
+  $('mode-hint').textContent = DIR_HINT[direction];
+}
+
 function fmtTime(sec) {
   const m = Math.floor(sec / 60);
   const s = Math.floor(sec % 60);
@@ -157,8 +174,11 @@ async function runSession() {
   show('screen-analyzing');
   await sleep(60);
 
-  const { report, meta } = analyzeSentence(data.x);
+  const { report, meta } = analyzeSentence(data.x, direction);
   renderReport(report, []);
+  $('report-mode').textContent = direction === 'ftm'
+    ? '参照：成人男声（FtM 男性化）'
+    : '参照：成人女声（MtF 女性化）';
   saveHistory(meta);
   show('screen-report');
 }
@@ -302,6 +322,7 @@ function saveHistory(m) {
   const list = loadHistory();
   list.unshift({
     ts: Date.now(),
+    dir: direction,
     f0: m.f0 ? Math.round(m.f0) : null,
     f2: m.formants && m.formants.F2 ? Math.round(m.formants.F2) : null,
     cpp: m.cpp != null ? Math.round(m.cpp * 10) / 10 : null,
@@ -325,6 +346,7 @@ function renderHistory() {
     d.className = 'hist';
     const t = new Date(it.ts);
     const parts = [`${t.getFullYear()}/${t.getMonth() + 1}/${t.getDate()} ${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`];
+    parts.unshift(it.dir === 'ftm' ? 'FtM' : 'MtF');
     if (it.f0) parts.push(`说话 F0 ${it.f0} Hz`);
     if (it.f2) parts.push(`F2 ${it.f2} Hz`);
     if (it.cpp != null) parts.push(`CPP ${it.cpp} dB`);
@@ -366,6 +388,15 @@ $('btn-history').addEventListener('click', () => {
 });
 
 $('btn-back').addEventListener('click', () => show('screen-home'));
+
+for (const btn of document.querySelectorAll('.mode-btn')) {
+  btn.addEventListener('click', () => {
+    direction = btn.dataset.dir;
+    localStorage.setItem(DIR_KEY, direction);
+    applyDirection();
+  });
+}
+applyDirection();
 
 if (!window.isSecureContext) {
   $('perm-warn').textContent = '当前页面不是 HTTPS，浏览器会拒绝麦克风访问。请用 localhost 或 https 打开。';

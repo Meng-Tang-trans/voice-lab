@@ -17,6 +17,12 @@
     <h1>声线实验室</h1>
     <p class="lede">说一句话，任何一句话。我们分析这句话里的音高、共振、音质和节奏。全部在浏览器里完成，录音不上传、不保存到服务器。</p>
 
+    <div class="mode" id="mode" role="tablist" aria-label="测试方向">
+      <button class="mode-btn active" data-dir="mtf" role="tab">女性化<span>MtF</span></button>
+      <button class="mode-btn" data-dir="ftm" role="tab">男性化<span>FtM</span></button>
+    </div>
+    <p id="mode-hint" class="mode-hint"></p>
+
     <div class="card">
       <h2>怎么测</h2>
       <ul class="checks">
@@ -66,6 +72,7 @@
   <!-- 报告 -->
   <section id="screen-report" class="screen hidden">
     <h1>本次报告</h1>
+    <p id="report-mode" class="report-mode"></p>
     <div id="report-body"></div>
     <button id="btn-again" class="primary">再测一次</button>
   </section>
